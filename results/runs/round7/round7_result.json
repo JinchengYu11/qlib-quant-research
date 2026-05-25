@@ -1,0 +1,116 @@
+{
+ "sweep": [
+  {
+   "excess_net_ann": 9.009743927249,
+   "excess_ir": 0.8741451831769526,
+   "gross_excess_ann": 10.670611086241715,
+   "turnover": 4.41616268846782,
+   "cost_ann": 1.6608671589927158,
+   "net_sharpe": 0.7599963125988989,
+   "net_mdd": -33.162345219623845,
+   "name": "baseline",
+   "topk": 50,
+   "n_drop": 1,
+   "hold_thresh": 1
+  },
+  {
+   "excess_net_ann": -36.77855014395145,
+   "excess_ir": -1.4855545265239345,
+   "gross_excess_ann": 34.91499990058601,
+   "turnover": 189.5958337670476,
+   "cost_ann": 71.69355004453745,
+   "net_sharpe": -0.9014471960213112,
+   "net_mdd": -91.5454907713523,
+   "name": "T1-ndrop0",
+   "topk": 50,
+   "n_drop": 0,
+   "hold_thresh": 1
+  },
+  {
+   "excess_net_ann": 13.650122269322898,
+   "excess_ir": 1.3720623623751642,
+   "gross_excess_ann": 16.91137016977659,
+   "turnover": 8.647765108692429,
+   "cost_ann": 3.261247900453689,
+   "net_sharpe": 0.9746602272621526,
+   "net_mdd": -32.4019859803116,
+   "name": "T2-ndrop2",
+   "topk": 50,
+   "n_drop": 2,
+   "hold_thresh": 1
+  },
+  {
+   "excess_net_ann": 16.49683619877968,
+   "excess_ir": 1.223317772976001,
+   "gross_excess_ann": 19.279969190777997,
+   "turnover": 7.3835331075379305,
+   "cost_ann": 2.783132991998317,
+   "net_sharpe": 1.0102836319480866,
+   "net_mdd": -38.56648026782777,
+   "name": "T3-top30",
+   "topk": 30,
+   "n_drop": 1,
+   "hold_thresh": 1
+  },
+  {
+   "excess_net_ann": 8.528843528880074,
+   "excess_ir": 1.0615908710643938,
+   "gross_excess_ann": 9.560655028241852,
+   "turnover": 2.7528315117580613,
+   "cost_ann": 1.031811499361779,
+   "net_sharpe": 0.794360567381169,
+   "net_mdd": -30.972542137297033,
+   "name": "T4-top85",
+   "topk": 85,
+   "n_drop": 1,
+   "hold_thresh": 1
+  },
+  {
+   "excess_net_ann": 14.133744790558476,
+   "excess_ir": 1.0407988850479326,
+   "gross_excess_ann": 15.612934268454362,
+   "turnover": 3.9356149219371965,
+   "cost_ann": 1.4791894778958945,
+   "net_sharpe": 0.924024302020399,
+   "net_mdd": -49.80366245371357,
+   "name": "T5-hold5",
+   "topk": 50,
+   "n_drop": 1,
+   "hold_thresh": 5
+  },
+  {
+   "excess_net_ann": 14.70131281687388,
+   "excess_ir": 1.1385928660387445,
+   "gross_excess_ann": 16.03482181610232,
+   "turnover": 3.55031360537692,
+   "cost_ann": 1.333508999228441,
+   "net_sharpe": 0.967743243848951,
+   "net_mdd": -30.097241473899782,
+   "name": "T6-hold10",
+   "topk": 50,
+   "n_drop": 1,
+   "hold_thresh": 10
+  }
+ ],
+ "tuned": {
+  "excess_net_ann": 14.749291005404414,
+  "excess_ir": 1.495457492441677,
+  "gross_excess_ann": 16.43704484606799,
+  "turnover": 4.487211824843561,
+  "cost_ann": 1.6877538406635806,
+  "net_sharpe": 1.0423712578720832,
+  "net_mdd": -31.243157514882867
+ },
+ "best_params": {
+  "learning_rate": 0.005098283474823444,
+  "num_leaves": 507,
+  "max_depth": 12,
+  "feature_fraction": 0.8192458253719842,
+  "bagging_fraction": 0.935790935870377,
+  "bagging_freq": 3,
+  "min_child_samples": 146,
+  "lambda_l1": 0.002662237064930267,
+  "lambda_l2": 977.5743218778501
+ },
+ "valid_rankicir": 0.4974622263806824
+}

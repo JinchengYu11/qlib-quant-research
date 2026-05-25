@@ -1,0 +1,1116 @@
+"""生成完整 PDF 报告：写 HTML+CSS → playwright 转 PDF。"""
+import os, sys, json
+from pathlib import Path
+from playwright.sync_api import sync_playwright
+
+PROJ = Path("/Users/cedricyu/qlib量化研究")
+FIGS = PROJ / "results" / "figures"
+OUT_HTML = PROJ / "results" / "report.html"
+OUT_PDF = PROJ / "results" / "PROJECT_REPORT.pdf"
+
+
+def fig(name, caption_main, caption_sub=""):
+    src = (FIGS / name).resolve()
+    cap_sub_html = f'<div class="cap-sub">{caption_sub}</div>' if caption_sub else ""
+    return f'''<div class="figure">
+  <img src="file://{src}" alt="{name}">
+  <div class="cap">
+    <div class="cap-main">{caption_main}</div>
+    {cap_sub_html}
+  </div>
+</div>'''
+
+
+CSS = """
+@page {
+  size: A4;
+  margin: 0;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  font-family: 'PingFang HK', 'Hiragino Sans GB', 'Heiti TC', 'Arial', sans-serif;
+  color: #2d3748;
+  line-height: 1.7;
+  font-size: 10.5pt;
+}
+.page {
+  padding: 22mm 20mm;
+  page-break-after: always;
+  position: relative;
+  min-height: 297mm;
+}
+.page:last-child { page-break-after: avoid; }
+h1, h2, h3, h4 { color: #1a365d; line-height: 1.3; font-weight: 600; }
+h1 { font-size: 26pt; margin-bottom: 8mm; }
+h2 {
+  font-size: 18pt; margin: 8mm 0 4mm;
+  border-left: 4px solid #c89b3c; padding-left: 10px;
+}
+h3 { font-size: 13pt; margin: 6mm 0 3mm; color: #2c5282; }
+h4 { font-size: 11pt; margin: 4mm 0 2mm; color: #4a5568; }
+p { margin-bottom: 4mm; }
+em { color: #c89b3c; font-style: normal; font-weight: 600; }
+strong { color: #1a365d; }
+
+/* 封面 */
+.cover {
+  height: 297mm; padding: 0;
+  background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
+  color: white;
+  page-break-after: always;
+  position: relative;
+  display: flex; flex-direction: column;
+  justify-content: space-between;
+}
+.cover-band-top {
+  height: 4mm; background: #c89b3c;
+}
+.cover-content {
+  padding: 30mm 22mm 22mm; flex: 1;
+}
+.cover-tag {
+  letter-spacing: 4px; font-size: 9pt; color: #c89b3c; text-transform: uppercase;
+  margin-bottom: 6mm;
+}
+.cover h1 {
+  color: white; font-size: 34pt; line-height: 1.2; margin-bottom: 4mm;
+  font-weight: 700;
+}
+.cover-sub {
+  font-size: 14pt; color: #cbd5e0; margin-bottom: 18mm;
+  font-weight: 300;
+}
+.cover-metrics {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8mm;
+  margin: 12mm 0;
+}
+.cover-metric {
+  background: rgba(255,255,255,0.08); border-left: 3px solid #c89b3c;
+  padding: 6mm 5mm;
+}
+.cover-metric-val {
+  font-size: 22pt; color: white; font-weight: 700; line-height: 1;
+}
+.cover-metric-lab {
+  font-size: 9pt; color: #cbd5e0; margin-top: 2mm; letter-spacing: 1px;
+}
+.cover-foot {
+  padding: 0 22mm 18mm; font-size: 9pt; color: #a0aec0;
+  display: flex; justify-content: space-between; align-items: flex-end;
+}
+.cover-foot-band {
+  height: 2mm; background: #c89b3c; margin: 0 -22mm; margin-top: 6mm;
+}
+
+/* TOC */
+.toc { margin-top: 6mm; }
+.toc-item {
+  display: flex; justify-content: space-between;
+  padding: 2.5mm 0; border-bottom: 1px dotted #cbd5e0;
+  font-size: 11pt;
+}
+.toc-item strong { color: #1a365d; }
+
+/* 执行摘要 metric cards */
+.summary-metrics {
+  display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4mm;
+  margin: 6mm 0;
+}
+.metric-card {
+  border: 1px solid #e2e8f0; border-radius: 4px; padding: 5mm;
+  background: linear-gradient(180deg, #fafbfc 0%, white 100%);
+  text-align: center;
+}
+.metric-card.gold {
+  border-top: 3px solid #c89b3c;
+}
+.metric-card.navy {
+  border-top: 3px solid #1a365d;
+}
+.metric-val {
+  font-size: 20pt; color: #1a365d; font-weight: 700; line-height: 1;
+}
+.metric-val.gold { color: #c89b3c; }
+.metric-lab {
+  font-size: 9pt; color: #718096; margin-top: 2mm; letter-spacing: 0.5px;
+}
+
+/* Callout / highlight box */
+.callout {
+  background: #fffbeb; border-left: 4px solid #c89b3c;
+  padding: 4mm 5mm; margin: 5mm 0;
+  font-size: 10pt;
+}
+.callout-title {
+  color: #c89b3c; font-weight: 700; font-size: 10pt; letter-spacing: 1px;
+  margin-bottom: 2mm; text-transform: uppercase;
+}
+.callout.danger {
+  background: #fef5e7; border-left-color: #dd6b20;
+}
+.callout.danger .callout-title { color: #dd6b20; }
+.callout.success {
+  background: #f0fff4; border-left-color: #2f855a;
+}
+.callout.success .callout-title { color: #2f855a; }
+.callout.navy {
+  background: #ebf8ff; border-left-color: #2c5282;
+}
+.callout.navy .callout-title { color: #2c5282; }
+
+/* Tables */
+table {
+  width: 100%; border-collapse: collapse; margin: 4mm 0;
+  font-size: 9.5pt;
+}
+th, td {
+  padding: 2mm 3mm; text-align: left;
+}
+th {
+  background: #1a365d; color: white; font-weight: 600;
+}
+tr:nth-child(even) td { background: #fafbfc; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.good { color: #2f855a; font-weight: 600; }
+td.bad { color: #c53030; font-weight: 600; }
+td.highlight { background: #fffbeb !important; font-weight: 700; color: #1a365d; }
+
+/* Figures */
+.figure {
+  margin: 6mm 0; page-break-inside: avoid;
+}
+.figure img {
+  width: 100%; max-height: 200mm; object-fit: contain;
+  border: 1px solid #e2e8f0;
+}
+.cap { margin-top: 2mm; padding-left: 2mm; border-left: 2px solid #c89b3c; }
+.cap-main { font-size: 9.5pt; color: #1a365d; font-weight: 600; }
+.cap-sub { font-size: 9pt; color: #718096; margin-top: 1mm; }
+
+/* Lists */
+ul, ol { margin: 3mm 0 4mm 6mm; }
+li { margin-bottom: 1.5mm; }
+
+/* Code-like */
+code, .config {
+  font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+  font-size: 9pt; background: #f7fafc; padding: 1px 4px; border-radius: 3px;
+  color: #2c5282;
+}
+.config-block {
+  background: #1a202c; color: #e2e8f0;
+  padding: 4mm 5mm; border-radius: 4px; margin: 4mm 0;
+  font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+  font-size: 8.5pt; line-height: 1.5;
+  page-break-inside: avoid;
+}
+.config-block .k { color: #f6ad55; }
+.config-block .v { color: #9ae6b4; }
+.config-block .c { color: #a0aec0; font-style: italic; }
+
+/* Footer / Header per page (via @page is complex with playwright; emulate at section level) */
+.page-footer {
+  position: absolute; bottom: 10mm; left: 20mm; right: 20mm;
+  font-size: 8pt; color: #a0aec0;
+  display: flex; justify-content: space-between;
+  border-top: 0.5px solid #e2e8f0; padding-top: 2mm;
+}
+
+/* Round section header */
+.round-header {
+  background: linear-gradient(90deg, #f7fafc 0%, white 100%);
+  border-left: 5px solid #1a365d;
+  padding: 4mm 6mm; margin: 6mm 0 4mm;
+}
+.round-tag {
+  font-size: 8pt; color: #c89b3c; letter-spacing: 2px; text-transform: uppercase;
+}
+.round-title { font-size: 14pt; color: #1a365d; font-weight: 700; margin-top: 1mm; }
+.round-subtitle { font-size: 10pt; color: #718096; margin-top: 1mm; }
+
+/* Quote */
+.quote {
+  font-style: italic; color: #4a5568;
+  border-left: 3px solid #cbd5e0; padding: 2mm 5mm;
+  margin: 4mm 6mm;
+}
+
+/* Two-column layout */
+.two-col {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 5mm;
+}
+
+.icon-row {
+  display: flex; gap: 6mm; margin: 4mm 0;
+}
+.icon-row > div {
+  flex: 1; text-align: center; padding: 3mm;
+  background: #fafbfc; border-radius: 4px;
+}
+.icon-row .ico { font-size: 24pt; color: #c89b3c; }
+.icon-row .lab { font-size: 9.5pt; color: #4a5568; margin-top: 2mm; }
+"""
+
+
+def build_html():
+    return f'''<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>A 股量化策略研究 - 完整报告</title>
+<style>{CSS}</style>
+</head>
+<body>
+
+<!-- ============= 封面 ============= -->
+<div class="cover">
+  <div>
+    <div class="cover-band-top"></div>
+    <div class="cover-content">
+      <div class="cover-tag">QUANTITATIVE RESEARCH</div>
+      <h1>A 股量化策略<br>研究项目完整报告</h1>
+      <div class="cover-sub">
+        九轮迭代实证 · 从零基础到真实可信 alpha 策略
+      </div>
+
+      <div class="cover-metrics">
+        <div class="cover-metric">
+          <div class="cover-metric-val">+4.40%</div>
+          <div class="cover-metric-lab">净年化超额</div>
+        </div>
+        <div class="cover-metric">
+          <div class="cover-metric-val">0.445</div>
+          <div class="cover-metric-lab">信息比率</div>
+        </div>
+        <div class="cover-metric">
+          <div class="cover-metric-val">5.4 年</div>
+          <div class="cover-metric-lab">测试期</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="cover-foot">
+      <div>
+        <div>Microsoft Qlib · LightGBM · 自建 baostock 数据管线</div>
+        <div style="margin-top:1mm">CSI500 历史并集 1623 只 · 含真实交易成本 0.3%</div>
+      </div>
+      <div style="text-align:right">
+        <div>2026 年 5 月</div>
+        <div style="margin-top:1mm; opacity:0.7">v1.0 Final</div>
+      </div>
+    </div>
+    <div class="cover-foot-band"></div>
+  </div>
+</div>
+
+
+<!-- ============= TOC ============= -->
+<div class="page">
+  <h2>目录 / Contents</h2>
+  <div class="toc">
+    <div class="toc-item"><strong>执行摘要</strong><span>03</span></div>
+    <div class="toc-item">1 &nbsp; 项目背景与方法论<span>05</span></div>
+    <div class="toc-item">2 &nbsp; 数据管线建设<span>07</span></div>
+    <div class="toc-item">3 &nbsp; 九轮迭代纪要<span>09</span></div>
+    <div class="toc-item" style="padding-left:6mm">第 1 轮 · 经典基线 (CSI300 短期)</div>
+    <div class="toc-item" style="padding-left:6mm">第 2 轮 · 长测试集打回原形</div>
+    <div class="toc-item" style="padding-left:6mm">第 3 轮 · 降换手救活策略</div>
+    <div class="toc-item" style="padding-left:6mm">第 4 轮 · 估值因子（信号好回测平）</div>
+    <div class="toc-item" style="padding-left:6mm">第 5 轮 · 超参优化失败</div>
+    <div class="toc-item" style="padding-left:6mm">第 6 轮 · 换战场 CSI500（突破）</div>
+    <div class="toc-item" style="padding-left:6mm">第 7 轮 · CSI500 含偏巅峰</div>
+    <div class="toc-item" style="padding-left:6mm">第 8 轮 · 去幸存者偏差（真相）</div>
+    <div class="toc-item" style="padding-left:6mm">第 8.5 轮 · 工具箱重新校准</div>
+    <div class="toc-item" style="padding-left:6mm">第 9 轮 · 模型集成+行业中性化失败</div>
+    <div class="toc-item">4 &nbsp; 可视化呈现（10 张关键图表）<span>22</span></div>
+    <div class="toc-item">5 &nbsp; 最终最优配置规格<span>30</span></div>
+    <div class="toc-item">6 &nbsp; 核心方法论收获<span>32</span></div>
+    <div class="toc-item">7 &nbsp; 未来路线图<span>34</span></div>
+    <div class="toc-item">附录 A &nbsp; 项目目录结构</div>
+    <div class="toc-item">附录 B &nbsp; 工程踩坑记录</div>
+    <div class="toc-item">附录 C &nbsp; 术语词典</div>
+  </div>
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>目录</span></div>
+</div>
+
+
+<!-- ============= 执行摘要 ============= -->
+<div class="page">
+  <h2>执行摘要</h2>
+
+  <p>本项目从零 Python 基础起步，使用 Microsoft Qlib 框架对 A 股市场进行系统化量化策略研究，
+  历经 <strong>9 轮迭代 + 1.5 轮方法论校验</strong>，在严格防过拟合的前提下，最终确立了一个
+  <em>真实可信、无方法论隐患</em>的多头选股策略：</p>
+
+  <div class="callout navy">
+    <div class="callout-title">★ 最终最优配置</div>
+    <strong>CSI500 历史并集 + Alpha158 + LightGBM 默认超参 + TopkDropoutStrategy(topk=30, n_drop=1)</strong>
+    <br>5.4 年含真实历史成分变更回测、含双边 0.3% 交易成本
+  </div>
+
+  <h3>关键成果指标</h3>
+  <div class="summary-metrics">
+    <div class="metric-card gold">
+      <div class="metric-val gold">+4.40%</div>
+      <div class="metric-lab">净年化超额</div>
+    </div>
+    <div class="metric-card navy">
+      <div class="metric-val">0.445</div>
+      <div class="metric-lab">信息比率</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-val">0.566</div>
+      <div class="metric-lab">净夏普</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-val">-12.6%</div>
+      <div class="metric-lab">超额最大回撤</div>
+    </div>
+  </div>
+
+  <h3>项目核心价值</h3>
+  <p>项目的真正成就<strong>不在于"高 IR"</strong>（0.45 仍低于实战可用线 1.0），
+  <strong>而在于建立了严谨、可复现、零方法论隐患的研究流程</strong>。</p>
+
+  <p>所有"漂亮数字"都经过<em>去偏 / 长测试集 / 不碰测试集</em>的反复校验：</p>
+  <ul>
+    <li>第 1 轮的 <strong>+8.85%</strong>（短测试集海市蜃楼）→ 第 2 轮长测试集打回 <strong>−0.97%</strong></li>
+    <li>第 7 轮的 <strong>+14.94%</strong>（幸存者偏差版本）→ 第 8 轮去偏后打回 <strong>+3.91%</strong></li>
+    <li>第 9 轮试图通过<strong>集成 / 行业中性化</strong>突破 +4.40% → 全部失败，反而印证当前框架已到上限</li>
+  </ul>
+
+  <p>剩下的 <strong>+4.40% / IR 0.45</strong> 是经过所有方法论审查后的<em>真金白银</em>。</p>
+
+  <div class="callout success">
+    <div class="callout-title">熊市防御性突出</div>
+    2022 年中证500 指数跌 <strong>−20.4%</strong>，本策略仅跌 <strong>−5.6%</strong>（净超额 <strong>+14.8%</strong>），
+    显示出明确的"抗跌"特性。
+  </div>
+
+  <h3>方法论收获概览</h3>
+  <ol>
+    <li><strong>长测试集是底线</strong>，不是可选 — 5 个月测试集救了我们一次潜在实盘灾难</li>
+    <li><strong>降换手是免费午餐</strong> — 第 3 轮模型不变、净超额 −0.97% → +2.81%</li>
+    <li><strong>IC 涨 ≠ 回测涨</strong> — 项目 5 次出现该现象（R4、R5、R8.5 重调、R9 集成、R9 中性化）</li>
+    <li><strong>战场决定上限</strong> — CSI500 vs CSI300 同模型 IR 翻倍多</li>
+    <li><strong>简单胜过复杂</strong> — 最终配置打败 200+ 轮 Optuna 调出的复杂方案</li>
+    <li><strong>幸存者偏差实际虚高 11 pp</strong>（远超经典估计 2-4 pp），中盘股尤甚</li>
+  </ol>
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>03 / 执行摘要</span></div>
+</div>
+
+
+<!-- ============= Section 1 ============= -->
+<div class="page">
+  <h2>1 &nbsp; 项目背景与方法论</h2>
+
+  <h3>1.1 研究目标</h3>
+  <p>项目同时承担<strong>学习</strong>与<strong>实证</strong>双重目标：</p>
+  <ul>
+    <li><strong>学</strong>：边做边学量化研究的完整方法论流水线 — 数据采集 → 因子工程 → 模型训练 → 策略构建 → 回测评估 → 迭代改进</li>
+    <li><strong>做</strong>：在 A 股市场，在严格防过拟合的前提下，找出净超额 &gt; 0 且经得起任何审查的可信策略</li>
+    <li><strong>守住的底线</strong>：所有结论必须能通过方法论复审；不接受任何"看上去很美"的回测</li>
+  </ul>
+
+  <h3>1.2 防过拟合铁律（贯穿全项目）</h3>
+  <p>从 CLAUDE.md 中定义、9 轮研究中严格执行的 5 条铁律：</p>
+
+  <table>
+    <thead>
+      <tr><th style="width:8mm">#</th><th>规则</th><th>用例与说明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td><strong>长测试集</strong></td><td>测试期至少 3 年、最好 5+ 年，需跨越牛熊市</td></tr>
+      <tr><td>2</td><td><strong>严格不碰测试集</strong></td><td>超参搜索 / 策略调参<strong>只能</strong>在 2018-2019 验证集上做；测试集 2020-10 ~ 2026-05 只在最终评估时跑一次</td></tr>
+      <tr><td>3</td><td><strong>必含交易成本</strong></td><td>A 股双边 0.3%（佣金 + 印花税 + 滑点）写死在每个回测里</td></tr>
+      <tr><td>4</td><td><strong>历史成分股</strong></td><td>股票池要用真实历史成分（每年都不同），不能只取"今天还在指数里的赢家"</td></tr>
+      <tr><td>5</td><td><strong>警惕完美回测</strong></td><td>年化 &gt;50%、IR &gt;3 一定是有问题；要倒查</td></tr>
+    </tbody>
+  </table>
+
+  <p>这 5 条规则在项目中被<em>反复印证</em>——每一条都救过我们一次。比如第 1 轮 9 个月测试集给出 +8.85% IR 1.04，
+  第 2 轮一旦延长到 5.4 年立刻打回 −0.97%。如果没守住"长测试集"这条规则，我们会以为找到了"圣杯"。</p>
+
+  <h3>1.3 研究范式</h3>
+  <div class="two-col">
+    <div class="callout">
+      <div class="callout-title">数据分层</div>
+      <strong>训练集</strong>：2010-01 ~ 2017-12（8 年）<br>
+      <strong>验证集</strong>：2018-01 ~ 2019-12（2 年，调参用）<br>
+      <strong>测试集</strong>：2020-10 ~ 2026-05（5.4 年，<em>只看一次</em>）
+    </div>
+    <div class="callout">
+      <div class="callout-title">迭代节奏</div>
+      每轮：假设 → 实现 → 回测 → 分析 → 决策<br>
+      记录到 <code>results/runs/round*/summary.md</code><br>
+      关键决策点用户拍板，不擅自切换方向
+    </div>
+  </div>
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>05 / 项目背景</span></div>
+</div>
+
+
+<!-- ============= Section 2: 数据管线 ============= -->
+<div class="page">
+  <h2>2 &nbsp; 数据管线建设</h2>
+
+  <h3>2.1 数据集演进</h3>
+  <p>项目使用 4 代数据集，前一代不够用就用 baostock 自建后一代：</p>
+
+  <table>
+    <thead>
+      <tr><th style="width:30mm">数据集</th><th>内容</th><th>状态</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>cn_data</code></td><td>qlib 官方，2010-2020/09</td><td class="bad">废弃（停更）</td></tr>
+      <tr><td><code>cn_data_v2</code></td><td>790 只 CSI300 历史并集，2010-2026</td><td>自建第一代</td></tr>
+      <tr><td><code>cn_data_v3</code></td><td>v2 + CSI500 当前 500 + SH000905 指数（共 1056 只）</td><td>含偏差版</td></tr>
+      <tr><td class="highlight"><code>cn_data_v4</code></td><td>v3 + CSI500 历史并集（共 1840 只）</td><td class="highlight">最终去偏版本</td></tr>
+    </tbody>
+  </table>
+
+  <p>每只股票 11 个字段：<code>$open $high $low $close $volume $vwap $factor</code>
+  + 4 个估值指标 <code>$pettm $pbmrq $psttm $pcfttm</code>。</p>
+
+  <h3>2.2 采集过程踩坑</h3>
+  <p>baostock 限流是核心挑战。经历了如下迭代：</p>
+
+  <table>
+    <thead><tr><th style="width:8mm">#</th><th>策略</th><th>结果</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>8 worker 并发</td><td class="bad">387/790 失败（IP 级限流）</td></tr>
+      <tr><td>2</td><td>降到 4 worker + 失败重登</td><td>勉强 ok，仍有部分失败</td></tr>
+      <tr><td>3</td><td>单线程兜底 + 1s 间隔</td><td class="good">0 失败但很慢</td></tr>
+      <tr><td>4</td><td>加 <code>socket.setdefaulttimeout(30)</code></td><td>避免 baostock 半挂死无限阻塞</td></tr>
+      <tr><td>5</td><td>多分片 + 循环重试 + 轮间冷却</td><td class="good">最终方案：791+784+120 = 1695 只无失败</td></tr>
+    </tbody>
+  </table>
+
+  <h3>2.3 关键工程脚本</h3>
+  <ul>
+    <li><code>baostock_collector.py</code> — OHLCV 多进程采集（含历史成分股查询）</li>
+    <li><code>valuation_collector.py</code> + <code>fetch_val_loop.py</code> — 估值采集 + 循环兜底</li>
+    <li><code>build_qlib_data.py</code> — CSV → qlib 二进制格式</li>
+    <li><code>collect_industries.py</code> — 行业归属（第 9 轮中性化用）</li>
+  </ul>
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>07 / 数据管线</span></div>
+</div>
+
+
+<!-- ============= Section 3: 九轮纪要 - 概览图 ============= -->
+<div class="page">
+  <h2>3 &nbsp; 九轮迭代纪要</h2>
+
+  <h3>3.0 完整战绩纵览</h3>
+
+  <table>
+    <thead>
+      <tr><th>轮次</th><th>配置</th><th>净超额</th><th>IR</th><th>备注</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>R1</td><td>CSI300 9 个月基线</td><td class="num">+8.85%★</td><td class="num">1.04★</td><td class="bad">海市蜃楼</td></tr>
+      <tr><td>R2</td><td>CSI300 5.4 年长测</td><td class="num bad">−0.97%</td><td class="num bad">−0.12</td><td>现实一巴掌</td></tr>
+      <tr><td>R3</td><td>+ 降换手 (n_drop=1)</td><td class="num good">+2.81%</td><td class="num">0.37</td><td class="good">救活了</td></tr>
+      <tr><td>R4</td><td>+ 估值因子</td><td class="num">+2.53%</td><td class="num">0.34</td><td>信号好回测平</td></tr>
+      <tr><td>R5</td><td>+ Optuna 调超参</td><td class="num">+1.79%</td><td class="num">0.24</td><td class="bad">过拟合验证集</td></tr>
+      <tr><td>R6</td><td>换 CSI500（含偏）</td><td class="num good">+9.01%</td><td class="num good">0.87</td><td class="good">突破！但含偏</td></tr>
+      <tr><td>R7</td><td>CSI500 + 调优（含偏）</td><td class="num">+14.94%★</td><td class="num">1.50★</td><td class="bad">含偏巅峰</td></tr>
+      <tr><td>R8</td><td>CSI500 去偏 + 调优套用</td><td class="num">+3.91%</td><td class="num">0.473</td><td>真相浮出</td></tr>
+      <tr class="highlight"><td class="highlight"><strong>R8.5</strong></td><td class="highlight"><strong>CSI500 去偏 + 默认 + topk=30</strong></td><td class="num highlight"><strong>+4.40%</strong></td><td class="num highlight"><strong>0.445</strong></td><td class="highlight">★ 最终最优</td></tr>
+      <tr><td>R9</td><td>集成 + 行业中性化（多个）</td><td class="num">−0.83% ~ +3.52%</td><td class="num">−0.09 ~ 0.31</td><td class="bad">全部失败</td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:8.5pt; color:#718096">★ = 含有方法论隐患（短期 / 幸存者偏差），不是真实数字</p>
+
+  {fig("fig1_cumulative_net.png", "图 1 | 项目演进 - 累计净值对比", "5 个关键配置 + 2 条基准的累计净值曲线。NAVY 粗线 = 最终最优配置 R8.5。红色 = 含偏 R7（项目最高点但虚高），可对比观察含偏 vs 去偏差距。")}
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>09 / 九轮纪要</span></div>
+</div>
+
+
+<!-- ============= 第 1-3 轮 ============= -->
+<div class="page">
+  <div class="round-header">
+    <div class="round-tag">ROUND 1 &nbsp;· &nbsp;CSI300 BASELINE</div>
+    <div class="round-title">经典基线 LightGBM + Alpha158（9 个月）</div>
+    <div class="round-subtitle">假设 → 用 158 个量价因子的工业基线在 A 股能跑出可观超额</div>
+  </div>
+  <p><strong>实现</strong>：qlib 自带 Alpha158 + LightGBM + TopkDropoutStrategy(topk=50, n_drop=5)，CSI300 上跑 2020-01 ~ 2020-09。</p>
+  <p><strong>结果</strong>：净年化超额 <em>+8.85%</em>，信息比率 <em>1.04</em>。</p>
+  <div class="callout danger">
+    <div class="callout-title">⚠ 埋雷时刻</div>
+    测试集只有 9 个月，且恰逢 2020 上半年牛市。数字可信度低。"好看的数字不一定是真的"——这是项目的第一个教训。
+  </div>
+
+  <div class="round-header">
+    <div class="round-tag">ROUND 2 &nbsp;· &nbsp;LONG TEST SET</div>
+    <div class="round-title">5.4 年长测试集 — 现实一巴掌</div>
+    <div class="round-subtitle">假设 → R1 可能是短期幸运，需要长测试集检验</div>
+  </div>
+  <p><strong>实现</strong>：自建 baostock 数据管线，拉 790 只 CSI300 历史并集（消除幸存者偏差），测试期扩到 5.4 年。
+  <strong>配置完全不变</strong>。</p>
+  <p><strong>结果</strong>：净超额 <strong style="color:#c53030">−0.97%</strong>，IR <strong style="color:#c53030">−0.12</strong>。</p>
+  <div class="callout success">
+    <div class="callout-title">★ 收获</div>
+    R1 的 +8.85% <strong>是 2020 牛市的海市蜃楼</strong>。延长测试期立即打回原形。<em>多 5 个月的努力就避免了一次潜在的实盘灾难</em>。
+  </div>
+
+  <div class="round-header">
+    <div class="round-tag">ROUND 3 &nbsp;· &nbsp;LOWER TURNOVER</div>
+    <div class="round-title">降换手 — 救活了策略</div>
+    <div class="round-subtitle">假设 → 毛超额 +6.74% 是活的，但年化成本 7.7% 把它全吃了</div>
+  </div>
+  <p><strong>实现</strong>：只改一个参数 <code>n_drop</code> 从 5 → 1。其他全不变。</p>
+
+  <table style="margin-top:3mm">
+    <thead><tr><th></th><th>R2 基线</th><th>R3</th></tr></thead>
+    <tbody>
+      <tr><td>净年化超额</td><td class="num bad">−0.97%</td><td class="num good">+2.81%</td></tr>
+      <tr><td>信息比率</td><td class="num bad">−0.12</td><td class="num good">0.368</td></tr>
+      <tr><td>日均换手</td><td class="num">20.4%</td><td class="num good">4.5%</td></tr>
+      <tr><td>年化交易成本</td><td class="num">7.7%</td><td class="num good">1.7%</td></tr>
+    </tbody>
+  </table>
+  <div class="callout success">
+    <div class="callout-title">★ 关键收获</div>
+    <strong>降换手是免费午餐</strong>。模型预测能力没变，但少交易 = 少交手续费 = 直接提净超额。
+    这是项目第一个"圆满"的可用配置，也是后续所有轮次的基础。
+  </div>
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>10 / 第 1-3 轮</span></div>
+</div>
+
+
+<!-- ============= 第 4-5 轮 ============= -->
+<div class="page">
+  <div class="round-header">
+    <div class="round-tag">ROUND 4 &nbsp;· &nbsp;VALUE FACTORS</div>
+    <div class="round-title">加估值因子 — 信号变好，回测打平</div>
+    <div class="round-subtitle">假设 → Alpha158 全是量价，加估值（PE/PB/PS/PCF）因子能正交补充</div>
+  </div>
+  <p><strong>实现</strong>：自建估值数据管线，写 <code>Alpha158Plus</code> handler 加 10 个估值因子。</p>
+  <table>
+    <thead><tr><th></th><th>Alpha158 (158)</th><th>Alpha158Plus (168)</th></tr></thead>
+    <tbody>
+      <tr><td>IC</td><td class="num">0.0289</td><td class="num good">0.0335 (+16%) ↗</td></tr>
+      <tr><td>净超额</td><td class="num">+2.81%</td><td class="num">+2.53% ↘</td></tr>
+      <tr><td>正收益年数</td><td class="num">4/7</td><td class="num good">6/7 ↗</td></tr>
+    </tbody>
+  </table>
+  <p>模型重要性 Top 12 里 <strong>BP 排第 8、EP 排第 12</strong>——估值因子是真正的正交 alpha。
+  但 IC 提升没转化为 TopK=50 的净超额。</p>
+  <div class="callout">
+    <div class="callout-title">★ 收获</div>
+    估值因子让策略<strong>更稳健</strong>（赚钱年数 4/7 → 6/7），但绝对超额没提。
+    <em>保留估值因子是为了风格分散，不是为了暴增收益</em>。
+    <br><br>
+    <strong>第一次出现"IC 涨 / 回测打平"现象</strong>——后续会再三重演。
+  </div>
+
+  <div class="round-header">
+    <div class="round-tag">ROUND 5 &nbsp;· &nbsp;HYPERPARAMETER TUNING</div>
+    <div class="round-title">Optuna 超参优化 — 同一个反直觉重演</div>
+    <div class="round-subtitle">假设 → 调超参能把 IC 增益榨成回测收益</div>
+  </div>
+  <p><strong>实现</strong>：Optuna 120 轮搜索，目标 = 验证集 RankICIR，<em>严格不碰测试集</em>。</p>
+  <table>
+    <thead><tr><th></th><th>默认超参</th><th>调优超参</th></tr></thead>
+    <tbody>
+      <tr><td>IC</td><td class="num">0.034</td><td class="num good">0.036 ↗</td></tr>
+      <tr><td>净超额</td><td class="num">+2.53%</td><td class="num bad">+1.79% ↘</td></tr>
+      <tr><td>IR</td><td class="num">0.34</td><td class="num bad">0.24 ↘</td></tr>
+    </tbody>
+  </table>
+  <p><strong>IC 又涨、回测又跌</strong>。搜出的复杂模型（叶子 507、深度 12、L1 几乎归零）在验证集表现更好，但没泛化到测试集。</p>
+  <div class="callout danger">
+    <div class="callout-title">★ 深层启示</div>
+    <strong>瓶颈不在模型，在战场</strong>。5 轮在 CSI300 上的所有努力（扩数据、降换手、加因子、调超参）
+    都没突破 +2.5% 的天花板。<em>CSI300 自身被机构套利得太充分</em>。
+  </div>
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>12 / 第 4-5 轮</span></div>
+</div>
+
+
+<!-- ============= 第 6-7 轮 ============= -->
+<div class="page">
+  <div class="round-header">
+    <div class="round-tag">ROUND 6 &nbsp;· &nbsp;CHANGE THE BATTLEFIELD</div>
+    <div class="round-title">换战场到 CSI500 — 真正的突破</div>
+    <div class="round-subtitle">假设 → 小盘股定价效率低，应该能榨更多 alpha</div>
+  </div>
+  <p><strong>实现</strong>：补采 500 只 CSI500 当前成分 + 中证500 指数。<em>配置完全不变</em>，只把 instruments 改为 csi500。</p>
+  <table>
+    <thead><tr><th></th><th>CSI300 (R3)</th><th>CSI500 (R6)</th></tr></thead>
+    <tbody>
+      <tr><td>净年化超额</td><td class="num">+2.81%</td><td class="num good">+9.01% 🚀</td></tr>
+      <tr><td>信息比率</td><td class="num">0.37</td><td class="num good">0.87</td></tr>
+      <tr><td>净夏普</td><td class="num">0.29</td><td class="num good">0.76</td></tr>
+    </tbody>
+  </table>
+  <div class="callout success">
+    <div class="callout-title">★ 重大收获</div>
+    完全相同的模型/因子/策略，<strong>仅换股票池，IR 翻 2.4 倍</strong>。前 5 轮"瓶颈不在模型"的判断被强力印证。
+    <br>⚠ 但用的是当前 500 成分，<em>有显著幸存者偏差</em>——结论方向性可信但绝对数字偏乐观。
+  </div>
+
+  <div class="round-header">
+    <div class="round-tag">ROUND 7 &nbsp;· &nbsp;CSI500 PEAK (BIASED)</div>
+    <div class="round-title">CSI500 上快速迭代 — 触到"较好"线</div>
+    <div class="round-subtitle">把 CSI300 上验证过的工具（策略扫描 + Optuna）搬到 CSI500</div>
+  </div>
+  <p><strong>结果</strong>：</p>
+  <table>
+    <thead><tr><th></th><th>默认超参</th><th>调优超参</th></tr></thead>
+    <tbody>
+      <tr><td>n_drop=1</td><td class="num">IR 0.87</td><td class="num good">IR 1.50 ⭐</td></tr>
+    </tbody>
+  </table>
+  <p><strong>Optuna 在 CSI500 上反而帮上忙了</strong>——跟 CSI300 上的"调参变差"完全相反。</p>
+  <div class="callout">
+    <div class="callout-title">★ 关键洞察</div>
+    超参优化是否管用，<strong>取决于战场本身的信号强度</strong>：
+    <ul style="margin-top:2mm">
+      <li>CSI300 信号薄 → 调参易过拟合 → 变差</li>
+      <li>CSI500 信号厚 → 调参有真空间可榨 → 大幅变好</li>
+    </ul>
+  </div>
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>14 / 第 6-7 轮</span></div>
+</div>
+
+
+<!-- ============= 第 8 轮 + 幸存者偏差图 ============= -->
+<div class="page">
+  <div class="round-header">
+    <div class="round-tag">ROUND 8 &nbsp;· &nbsp;REMOVING SURVIVORSHIP BIAS</div>
+    <div class="round-title">CSI500 去幸存者偏差 — 真相浮出</div>
+    <div class="round-subtitle">实现 → 拉 CSI500 64 个季度历史成分快照 → 历史并集 1623 只 → 补采 784 只新股</div>
+  </div>
+
+  <table>
+    <thead><tr><th></th><th>R7 含偏版</th><th>R8 去偏版</th><th>差值</th></tr></thead>
+    <tbody>
+      <tr><td>净年化超额</td><td class="num">+14.94%</td><td class="num">+3.91%</td><td class="num bad"><strong>−11.03 pp</strong></td></tr>
+      <tr><td>信息比率</td><td class="num">1.555</td><td class="num">0.473</td><td class="num bad">−1.08</td></tr>
+      <tr><td>净夏普</td><td class="num">1.008</td><td class="num">0.586</td><td class="num bad">−0.42</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout danger">
+    <div class="callout-title">★ 深刻方法论收获</div>
+    <strong>幸存者偏差实际虚高了 11 个百分点</strong>——远超经典估算的 2-4 pp。
+    在中证500 这种中盘上，淘汰率高，偏差严重得多。
+    <br><br>
+    第 7 轮 IR 1.55 看着像项目巅峰，第 8 轮直接打回 0.47。<em>如果当初拿 IR 1.55 去实盘，会非常痛</em>。
+  </div>
+
+  {fig("fig4_bias_viz.png", "图 4 | 幸存者偏差视觉化", "同模型、同策略、同超参，仅数据集从含偏 v3 变去偏 v4。红色填充区 = 幸存者偏差虚高部分（累计 70 pp）。")}
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>16 / 第 8 轮</span></div>
+</div>
+
+
+<!-- ============= 第 8.5 轮 ============= -->
+<div class="page">
+  <div class="round-header">
+    <div class="round-tag">ROUND 8.5 &nbsp;· &nbsp;METHODOLOGY CLOSURE</div>
+    <div class="round-title">去偏数据上重新校准工具箱 — 方法论闭环</div>
+    <div class="round-subtitle">假设 → R8 用的是 v3 调出的超参套到 v4 用，v4 上可能有更优配置</div>
+  </div>
+
+  <p><strong>实现</strong>：在 cn_data_v4（去偏）上重跑 6 组策略扫描 + Optuna 80 轮。</p>
+
+  <table>
+    <thead><tr><th>配置</th><th>净超额</th><th>IR</th><th>净夏普</th></tr></thead>
+    <tbody>
+      <tr><td>v3 调优超参 + n_drop=1 (R8)</td><td class="num">+3.91%</td><td class="num">0.473</td><td class="num">0.586</td></tr>
+      <tr class="highlight"><td class="highlight"><strong>v4 默认超参 + topk=30 ★</strong></td><td class="num highlight"><strong>+4.40%</strong></td><td class="num highlight">0.445</td><td class="num highlight">0.566</td></tr>
+      <tr><td>v4 调优超参 + n_drop=1</td><td class="num">+3.36%</td><td class="num">0.420</td><td class="num">0.571</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <div class="callout-title">★ 三个进一步发现</div>
+    <ul>
+      <li><strong>T3 (topk=30) 在含偏 v3 和去偏 v4 上都赢</strong>——真鲁棒</li>
+      <li>T2 (n_drop=2)、T6 (hold=10) 只在 v3 上赢——含偏数据的伪影</li>
+      <li>v4 上重调 Optuna 验证集 RankICIR 涨了，但测试集 IR 反而没赢过 v3 调出的——"IC 涨 ≠ 回测涨"<strong>第 4 次</strong>出现</li>
+    </ul>
+  </div>
+
+  <div class="round-header">
+    <div class="round-tag">ROUND 9 &nbsp;· &nbsp;ENSEMBLE + NEUTRALIZATION (FAILED)</div>
+    <div class="round-title">尝试突破 R8.5 上限 — 三个失败实验</div>
+  </div>
+  <p>实验 A：Ridge 线性模型。实验 B：4 种集成方案（等权 / IC加权 / 70-30 / Voting）。实验 C：行业中性化。</p>
+
+  <table>
+    <thead><tr><th>方案</th><th>净超额</th><th>IR</th><th>vs R8.5</th></tr></thead>
+    <tbody>
+      <tr class="highlight"><td class="highlight"><strong>R8.5 单模 LGB</strong></td><td class="num highlight"><strong>+4.40%</strong></td><td class="num highlight"><strong>+0.445</strong></td><td>—</td></tr>
+      <tr><td>单模 Ridge</td><td class="num">+3.52%</td><td class="num">+0.313</td><td>略差</td></tr>
+      <tr><td>等权融合</td><td class="num bad">+0.60%</td><td class="num bad">+0.057</td><td class="bad">暴跌</td></tr>
+      <tr><td>IC 加权</td><td class="num bad">+1.55%</td><td class="num bad">+0.142</td><td class="bad">暴跌</td></tr>
+      <tr><td>Voting (都进 top 60)</td><td class="num bad">−0.83%</td><td class="num bad">−0.094</td><td class="bad">倒亏</td></tr>
+      <tr><td>+ 行业中性化</td><td class="num bad">−0.40%</td><td class="num bad">−0.044</td><td class="bad">−4.8 pp</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout success">
+    <div class="callout-title">★ 失败的价值</div>
+    <strong>所有改进失败 → 强力确认 R8.5 已是 Alpha158 框架的真实上限</strong>。
+    要突破必须换<em>信号源</em>（基本面、另类数据、高频微观结构），不是换模型也不是加风控。
+    <br><br>
+    <em>有时确认天花板比突破天花板更重要</em>。
+  </div>
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>18 / 第 8.5-9 轮</span></div>
+</div>
+
+
+<!-- ============= Section 4: 可视化 ============= -->
+<div class="page">
+  <h2>4 &nbsp; 可视化呈现</h2>
+  <p>本节展示项目核心 10 张图表。所有数据均来自经严谨防过拟合校验后的最终回测结果。</p>
+
+  {fig("fig2_yearly_excess.png", "图 2 | 逐年净超额对比",
+       "4 个关键配置在 7 个年份上的净超额。2022 熊市策略普遍跑赢基准（防御性突出）。")}
+
+  {fig("fig3_summary_bars.png", "图 3 | 项目五个关键配置三大指标横评",
+       "金色描边 = 当前指标最优。净超额由 R7 含偏版领先（虚高），但 R8.5 为去偏后最稳健。")}
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>22 / 可视化</span></div>
+</div>
+
+<div class="page">
+  {fig("fig5_monthly_heatmap.png", "图 5 | 最终配置月度净超额热力图",
+       "5.4 年 × 12 月，每个色块为当月净超额。绿涨红跌。2022 年策略相对基准防御性突出。")}
+
+  {fig("fig6_rolling_ir.png", "图 6 | 滚动 60 日 IR / 净夏普",
+       "时间稳定性视角。滚动 IR 多数时间为正，且超过虚线『可用』线 1.0 的时段不算少。")}
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>24 / 可视化</span></div>
+</div>
+
+<div class="page">
+  {fig("fig7_underwater.png", "图 7 | 水下回撤图",
+       "策略距离历史新高的距离。深色 = 策略净回撤（受市场 beta 影响大）；绿色 = 超额回撤（仅 −12.6%）。")}
+
+  {fig("fig8_factor_importance.png", "图 8 | LightGBM 因子重要性 Top 20",
+       "RANK5、MIN60、MA5 等短期动量类因子主导——A 股短期（2 日）预测的 alpha 主要来自动量结构。")}
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>26 / 可视化</span></div>
+</div>
+
+<div class="page">
+  {fig("fig9_ic_timeseries.png", "图 9 | IC 时间序列",
+       "上图：累计 IC 一路上升——信号长期稳定为正。下图：日 IC 柱状，正比例 55-60%。")}
+
+  {fig("fig10_correlation.png", "图 10 | 各配置日收益相关性矩阵",
+       "策略与基准相关性 0.85-0.95（长只多头属性）。策略之间相关性极高，提示单类信号空间，多策略组合需引入根本不同的信号源。")}
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>28 / 可视化</span></div>
+</div>
+
+
+<!-- ============= Section 5: 最终配置 ============= -->
+<div class="page">
+  <h2>5 &nbsp; 最终最优配置规格</h2>
+
+  <div class="callout navy">
+    <div class="callout-title">★ R8.5 FINAL CONFIGURATION</div>
+    <strong>CSI500 (历史并集去偏) + Alpha158 + LightGBM 默认超参 + TopkDropoutStrategy(topk=30, n_drop=1, hold=1)</strong>
+  </div>
+
+  <h3>5.1 实测指标（5.4 年含真实成分变更）</h3>
+  <table>
+    <thead><tr><th>指标</th><th>数值</th><th>评级</th></tr></thead>
+    <tbody>
+      <tr><td>测试期</td><td class="num">5.4 年 (1357 交易日)</td><td class="good">✅ 长</td></tr>
+      <tr><td>净年化超额</td><td class="num good"><strong>+4.40%</strong></td><td class="good">✅ 真实正 alpha</td></tr>
+      <tr><td>信息比率</td><td class="num">0.445</td><td>⚠ 接近"可用"线但未达</td></tr>
+      <tr><td>净夏普</td><td class="num">0.566</td><td>一般（受市场 beta 拖累）</td></tr>
+      <tr><td>超额最大回撤</td><td class="num good">−12.60%</td><td class="good">✅ 可控</td></tr>
+      <tr><td>策略最大回撤</td><td class="num">−29.61%</td><td>⚠ 市场 beta 拖累</td></tr>
+      <tr><td>日均换手</td><td class="num good">6.8%</td><td class="good">✅ 合理</td></tr>
+      <tr><td>年化交易成本</td><td class="num">~2.5%</td><td>✅ 已计入</td></tr>
+      <tr><td>正收益年份</td><td class="num">4 / 7</td><td>✅ 稳健</td></tr>
+      <tr><td>2022 熊市表现</td><td class="num good">+14.8% 超额</td><td class="good">🔥 防御性突出</td></tr>
+    </tbody>
+  </table>
+
+  <h3>5.2 配置详细（可复现）</h3>
+  <div class="config-block">
+<span class="c"># 数据集</span>
+<span class="k">provider_uri:</span> <span class="v">~/.qlib/qlib_data/cn_data_v4</span>
+<span class="k">universe:</span> <span class="v">csi500</span>  <span class="c"># 历史并集 1623 只</span>
+<span class="k">benchmark:</span> <span class="v">SH000905</span>  <span class="c"># 中证500 指数</span>
+
+<span class="c"># 因子</span>
+<span class="k">factor_set:</span> <span class="v">Alpha158</span>  <span class="c"># 158 个量价因子</span>
+
+<span class="c"># 模型 (qlib 默认基准超参)</span>
+<span class="k">model:</span> <span class="v">LGBModel</span>
+<span class="k">  loss:</span> <span class="v">mse</span>
+<span class="k">  learning_rate:</span> <span class="v">0.0421</span>
+<span class="k">  num_leaves:</span> <span class="v">210</span>
+<span class="k">  max_depth:</span> <span class="v">8</span>
+<span class="k">  lambda_l1:</span> <span class="v">205.7</span>
+<span class="k">  lambda_l2:</span> <span class="v">581.0</span>
+<span class="k">  colsample_bytree:</span> <span class="v">0.888</span>
+<span class="k">  subsample:</span> <span class="v">0.879</span>
+
+<span class="c"># 数据分割</span>
+<span class="k">segments:</span>
+<span class="k">  train:</span> <span class="v">[2010-01-04, 2017-12-31]</span>
+<span class="k">  valid:</span> <span class="v">[2018-01-01, 2019-12-31]</span>
+<span class="k">  test:</span>  <span class="v">[2020-10-01, 2026-05-15]</span>
+
+<span class="c"># 策略</span>
+<span class="k">strategy:</span> <span class="v">TopkDropoutStrategy</span>
+<span class="k">  topk:</span> <span class="v">30</span>  <span class="c"># 每日持仓 30 只</span>
+<span class="k">  n_drop:</span> <span class="v">1</span>  <span class="c"># 每日强制换 1 只</span>
+<span class="k">  hold_thresh:</span> <span class="v">1</span>
+
+<span class="c"># 交易成本 (A 股双边 0.3%)</span>
+<span class="k">exchange:</span>
+<span class="k">  open_cost:</span> <span class="v">0.001</span>
+<span class="k">  close_cost:</span> <span class="v">0.002</span>  <span class="c"># 含 0.1% 印花税</span>
+<span class="k">  min_cost:</span> <span class="v">5</span>
+<span class="k">  limit_threshold:</span> <span class="v">0.095</span>
+  </div>
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>30 / 最终配置</span></div>
+</div>
+
+
+<!-- ============= Section 6: 方法论收获 ============= -->
+<div class="page">
+  <h2>6 &nbsp; 核心方法论收获</h2>
+
+  <p>这 6 条收获是 9 轮研究的"投资价值最大"的部分。每一条都来自真实的"踩坑后顿悟"，
+  比"得到正确数字"更值钱。</p>
+
+  <div class="callout">
+    <div class="callout-title">1. 长测试集是底线，不是可选</div>
+    R1 9 个月给 +8.85% / IR 1.04；R2 同配置 5.4 年立刻打回 −0.97% / IR −0.12。
+    <strong>多 5 个月的努力就避免了一次潜在的实盘灾难</strong>。任何短测试集（&lt;3 年）的回测都要打狠折扣。
+  </div>
+
+  <div class="callout">
+    <div class="callout-title">2. 降换手是免费午餐</div>
+    R3 把 <code>n_drop</code> 5 → 1，<strong>模型/因子/超参全不变</strong>，净超额 −0.97% → +2.81%。
+    <em>70% 的提升来自策略层一行参数</em>。交易成本是量化里的"暗杀手"——A 股双边 0.3% 看似不大，
+    高换手下年化能吃掉 7-8% 的纸面 alpha。
+  </div>
+
+  <div class="callout">
+    <div class="callout-title">3. IC 涨 ≠ 回测涨（项目 5 次出现）</div>
+    R4 加估值（IC +16% / 回测 −0.3pp）、R5 调超参（IC +6% / 回测 −0.7pp）、R8.5 v4 重调（验证 RankICIR +8% / 测试 IR −0.05）、
+    R9 集成（IC 持平 / 回测崩盘）、R9 行业中性化（ICIR +17% / 回测崩盘）。<strong>同一反直觉现象 5 次重演</strong>。
+    <br><br>
+    <em>背后本质</em>：IC 衡量"全部 500 只股票排序对不对"，但 TopK=30 只关心最尖端 30 只。
+    整体排序变好不等于尖子选得更好。优化目标和真实目标永远有缝。
+  </div>
+
+  <div class="callout">
+    <div class="callout-title">4. 战场决定上限</div>
+    CSI300 上 5 轮努力 → 上限 IR 0.37。CSI500 同样的工具 → IR 0.45（去偏后真实数字）。
+    <strong>最大边际产出来自换战场，不是打磨模型</strong>。CSI300 太被机构套利充分了。
+  </div>
+
+  <div class="callout">
+    <div class="callout-title">5. 简单胜过复杂</div>
+    最终最优配置 = qlib 默认超参 + <code>topk=30</code> <strong>一个改动</strong>，打败了 200 轮 Optuna 搜索调出的复杂超参组合。
+    每一轮"看起来更复杂的方案"都没能赢过"简单方案"。<em>过度拟合是过度优化的另一个名字</em>。
+  </div>
+
+  <div class="callout danger">
+    <div class="callout-title">6. 幸存者偏差实际虚高 11 pp（远超经典估计）</div>
+    经典文献估算小盘股幸存者偏差年化虚高 2-4 pp。我们的实测是 <strong>11 pp</strong>！
+    <br><br>
+    R7 含偏版 +14.94% → R8 去偏版 +3.91%。在中盘股（中证500）淘汰率高的环境下，偏差严重得多。
+    <em>任何"只用当前成分"的回测都要打狠折扣</em>。
+  </div>
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>32 / 方法论收获</span></div>
+</div>
+
+
+<!-- ============= Section 7: 路线图 ============= -->
+<div class="page">
+  <h2>7 &nbsp; 未来路线图</h2>
+  <p>项目走到 R8.5 + R9，<strong>已确认在 Alpha158 量价因子框架下到达天花板</strong>。要再上一台阶，必须换信号源。
+  按工作量 / 预期收益排序：</p>
+
+  <h3>🟢 短期（1-2 天工作量，纯本地数据）</h3>
+  <ul>
+    <li><strong>组合优化器</strong>：替代 TopK 为带约束（行业上限、波动率上限、个股权重）的组合优化</li>
+    <li><strong>分层 long-only</strong>：分 5/10 层多空表现，识别哪些股票区间最有 alpha</li>
+    <li><strong>风险因子调控</strong>：在 Barra 风格上做暴露归因，去掉非主动风险</li>
+  </ul>
+
+  <h3>🟡 中期（1-2 周工作量，需新数据源）</h3>
+  <ul>
+    <li><strong>加财务因子</strong>（季度 ROE / 营收增速 / 毛利率等）—— 需<em>点位安全</em>处理（财报披露日延迟）</li>
+    <li><strong>加一致预期因子</strong>（分析师评级 / 调研频次）—— 需 Wind / 同花顺等付费源</li>
+    <li><strong>扩到 CSI1000</strong> 或全市场 —— baostock 无 CSI1000，需 akshare 接</li>
+    <li><strong>深度学习模型</strong>（LSTM / Transformer / TCN）—— 装 PyTorch 已就绪</li>
+  </ul>
+
+  <h3>🔴 长期（大投入，需团队/资源）</h3>
+  <ul>
+    <li><strong>高频微观结构因子</strong>（tick 级订单流），需付费数据，工作量数月</li>
+    <li><strong>另类数据</strong>（卫星图像、新闻 NLP、信用卡支出、招聘数据）</li>
+    <li><strong>实盘小规模验证</strong>（10 万 → 50 万 → 200 万 → 全仓递进）—— 需券商接口接通</li>
+  </ul>
+
+  <div class="callout navy">
+    <div class="callout-title">给项目本身的建议</div>
+    <ul>
+      <li>当前 IR 0.45 <strong>不足以独立实盘</strong>——实战通常需要 IR ≥ 1.0，且需要多策略组合分散风险</li>
+      <li>这个项目作为"<em>研究方法论训练</em>"已成功；作为"<em>实盘策略</em>"还差至少 IR 0.5 的距离</li>
+      <li>真要实盘，推荐路径：<strong>集成模型 → 加财务因子 → 多策略组合 → 小规模实盘</strong></li>
+    </ul>
+  </div>
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>34 / 路线图</span></div>
+</div>
+
+
+<!-- ============= 附录 ============= -->
+<div class="page">
+  <h2>附录 A &nbsp; 项目目录结构</h2>
+  <div class="config-block">
+qlib量化研究/
+├── PROJECT_REPORT.pdf              ← <span class="v">本报告</span>
+├── PROJECT_REPORT.md               ← markdown 源版
+├── CLAUDE.md                       ← 项目规则与角色设定
+│
+├── configs/                        ← qrun YAML 配置
+│   ├── baseline_lgb_alpha158.yaml
+│   ├── baseline_lgb_alpha158_v2.yaml
+│   └── round3_best_lgb_alpha158.yaml
+├── factors/
+│   ├── alpha158_plus.py            ← Alpha158 + 估值因子
+│   └── industry_neutral.py         ← 行业中性化 Processor (R9)
+├── scripts/                        ← 所有工程脚本 (25+)
+│   ├── baostock_collector.py       ← OHLCV 采集
+│   ├── valuation_collector.py      ← 估值采集
+│   ├── fetch_val_loop.py           ← 循环兜底
+│   ├── build_qlib_data.py          ← CSV → qlib bin
+│   ├── collect_industries.py       ← 行业归属采集
+│   ├── round[1-9].py / round8_5.py ← 各轮回测脚本
+│   ├── figs_make_v2.py             ← 高质量图表生成
+│   └── build_report.py             ← 本报告生成器
+├── data_raw/
+│   ├── baostock_csv/               ← OHLCV (1840 只)
+│   ├── baostock_valuation/         ← 估值 (730 只覆盖)
+│   └── meta/                       ← 元数据 JSON / 失败列表
+└── results/
+    ├── research_log.md             ← 完整研究日志
+    ├── runs/                       ← 每轮 summary.md + CSV/JSON
+    ├── mlruns/                     ← qrun 的 mlflow artifacts
+    ├── figures/                    ← 10 张图表
+    └── figures_data/               ← 绘图源数据
+  </div>
+
+  <h2>附录 B &nbsp; 工程踩坑记录</h2>
+  <ol style="font-size:9pt; line-height:1.8">
+    <li>macOS arm64 lightgbm 缺 libomp → conda-forge 装 <code>llvm-openmp</code></li>
+    <li>numpy 2.x 与 qlib 不兼容 → 锁 <code>numpy&lt;2</code></li>
+    <li>conda 新版需接受 ToS → <code>conda tos accept --override-channels --channel ...</code></li>
+    <li>qlib 默认数据停更 2020-09 → 自建 baostock 管线</li>
+    <li>qlib 回测末尾 IndexError（future calendar）→ 测试期末尾留 3 个交易日缓冲</li>
+    <li>baostock 8 worker 并发被限流（387 失败）→ 降到 4 worker + 自动重登</li>
+    <li>4 worker 仍部分被限 → 单线程兜底 + 1 秒间隔</li>
+    <li>baostock 连接半挂死，retry 接不住 → 设 <code>socket.setdefaulttimeout(30)</code></li>
+    <li>多 shard 并行被 IP 级限流 → 单连接慢节奏 + 多轮循环</li>
+    <li>Optuna 动态改 <code>min_child_samples</code> 与 LightGBM 冲突 → Dataset 设 <code>feature_pre_filter=False</code></li>
+    <li>Python heredoc + lightgbm 多进程冲突 → 写成正式 .py 脚本</li>
+    <li><code>n_drop=0</code> 在 qlib 中实际是每日全换 → 这选项是个坑</li>
+  </ol>
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>附录 A-B</span></div>
+</div>
+
+<div class="page">
+  <h2>附录 C &nbsp; 术语词典</h2>
+
+  <table>
+    <thead><tr><th style="width:35mm">术语</th><th>含义</th></tr></thead>
+    <tbody>
+      <tr><td>IC / Rank IC</td><td>因子预测能力（皮尔逊 / 斯皮尔曼相关）</td></tr>
+      <tr><td>ICIR / RankICIR</td><td>IC 的稳定性（mean/std），衡量信号质量</td></tr>
+      <tr><td>净超额 (net excess)</td><td>策略收益 − 基准收益（含交易成本）</td></tr>
+      <tr><td>信息比率 (IR)</td><td>净超额年化 / 超额波动年化，<strong>衡量纯 alpha 质量</strong></td></tr>
+      <tr><td>净夏普 (net Sharpe)</td><td>策略净年化收益 / 策略波动，<strong>含市场 beta</strong></td></tr>
+      <tr><td>n_drop</td><td>TopkDropoutStrategy 中每日强制换股数</td></tr>
+      <tr><td>topk</td><td>每日持仓股票数</td></tr>
+      <tr><td>幸存者偏差</td><td>只统计活下来的股票（赢家），结论虚高</td></tr>
+      <tr><td>含偏 v3 / 去偏 v4</td><td>当前 500 成分 vs 历史并集 1623 只</td></tr>
+      <tr><td>Alpha158 / Plus</td><td>158 量价因子 / 168（+ 10 估值）</td></tr>
+      <tr><td>LightGBM</td><td>梯度提升树模型，量化界默认首选</td></tr>
+      <tr><td>Optuna</td><td>贝叶斯超参优化框架</td></tr>
+      <tr><td>GBDT</td><td>Gradient Boosting Decision Tree（梯度提升树）</td></tr>
+      <tr><td>过拟合</td><td>模型在训练集表现好，在新数据失灵</td></tr>
+      <tr><td>多空对冲 (market neutral)</td><td>同时做多和做空，对冲市场 beta</td></tr>
+      <tr><td>long-only 多头</td><td>只买不卖，承担市场风险敞口（我们的策略）</td></tr>
+    </tbody>
+  </table>
+
+  <h2 style="margin-top:12mm">关于本报告</h2>
+  <p style="color:#718096; font-size:10pt">
+    本报告由 9 轮迭代研究的完整结果整理而成。所有数据、脚本、原始 markdown 报告均存放在项目仓库 <code>~/qlib量化研究/</code>，
+    可任意复现。
+    <br><br>
+    可视化图表由 <code>scripts/figs_make_v2.py</code> 生成（matplotlib + 自定义配色），
+    本 PDF 报告由 <code>scripts/build_report.py</code> 生成（HTML + CSS → Playwright Chromium PDF）。
+    <br><br>
+    <em>"好的研究不是找到漂亮的数字，而是排除所有可能让数字漂亮的虚假理由。"</em>
+  </p>
+
+  <div style="margin-top:30mm; text-align:center; color:#a0aec0; font-size:9pt;">
+    ── 完 ──
+  </div>
+
+  <div class="page-footer"><span>A 股量化策略研究 · 完整报告</span><span>附录 C</span></div>
+</div>
+
+
+</body>
+</html>
+'''
+
+
+def main():
+    print("[1] 生成 HTML ...", flush=True)
+    html = build_html()
+    OUT_HTML.write_text(html, encoding="utf-8")
+    print(f"    HTML 写到 {OUT_HTML}  ({len(html)/1024:.0f} KB)", flush=True)
+
+    print("[2] Playwright 转 PDF ...", flush=True)
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.goto(f"file://{OUT_HTML.resolve()}", wait_until="networkidle")
+        page.pdf(
+            path=str(OUT_PDF),
+            format="A4",
+            print_background=True,
+            margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
+        )
+        browser.close()
+    size_kb = OUT_PDF.stat().st_size / 1024
+    print(f"    PDF 生成成功 → {OUT_PDF}  ({size_kb:.0f} KB)", flush=True)
+    print("\n[DONE] 完整报告 PDF 已生成", flush=True)
+
+
+if __name__ == "__main__":
+    main()

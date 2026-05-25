@@ -1,0 +1,66 @@
+# =====================================================
+# Qlib 量化研究项目 .gitignore
+# 注意：git .gitignore 不支持行尾注释！注释必须独立成行
+# =====================================================
+
+# ----- 原始数据（太大，运行 collector 重新生成）-----
+data_raw/baostock_csv/
+data_raw/baostock_valuation/
+
+# 保留小的元数据 JSON 和 TXT
+!data_raw/meta/
+
+# ----- 大的中间结果（脚本可重生成）-----
+# 绘图源 pkl, 93 MB
+results/figures_data/
+# qrun 的 mlflow artifacts, 52 MB
+results/mlruns/
+# 根目录的 mlruns
+mlruns/
+
+# 保留核心产出
+!results/runs/
+!results/figures/
+!results/PROJECT_REPORT.pdf
+!results/PROJECT_REPORT.md
+!results/report.html
+!results/research_log.md
+
+# ----- qlib 数据目录（应该在 ~/.qlib，不在项目内）-----
+.qlib/
+
+# ----- Python 标准 -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ----- macOS -----
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ----- 编辑器 -----
+.vscode/
+.idea/
+*.swp
+*.swo
+.claude/
+
+# ----- 临时 / 日志 -----
+*.log
+tmp/
+.tmp/
+
+# ----- 大文件兜底 -----
+*.pkl
+
+# 但保留 round* 子目录里的小 pkl
+!results/runs/**/*.pkl
+
+# Users 子目录是路径事故
+Users/
