@@ -401,3 +401,40 @@ CSI500 (历史并集) + Alpha158 + LightGBM 默认超参 + TopkDropoutStrategy(t
 **下一步**：B1++ — 实现 hypothetical long-short 框架（不需要实盘融券，只为研究），看 IR 实际能到多少。
 
 ---
+
+## 阶段五·第 12 轮 (B1++)：研究版 long-short — 真正突破 R8.5 天花板（2026-05-26）
+
+**假设**：R10 spread 理论 Sharpe 0.82, 接入真实 backtest 框架（含成本）能拿到多少？
+
+**实现**：用 qlib TopkDropoutStrategy 跑两次:
+- 多头侧 = `Topk(pred, K=30, n_drop=1)` (R8.5 标准)
+- 空头侧 = `Topk(-pred, K=30, n_drop=1)` (反预测当多头) → 收益取反
+- 组合: gross_per_leg × (long_net + short_net)
+
+第一版 buggy（每天 100% rebalance, 换手 70%, 年化 -41%）, 修正用 TopkDropout 机制后换手对齐到 6-7%。
+脚本 [scripts/round12_longshort.py](../scripts/round12_longshort.py), 详细 [results/runs/round12/summary.md](runs/round12/summary.md)。
+
+**关键结果**：
+
+| 配置 | 年化 | Vol | **Sharpe** | MDD |
+|---|---|---|---|---|
+| R8.5 long-only (净超额) | +4.40% | 9.9% | **+0.445** | -15.7% |
+| **LS-100% K=30** | **+7.32%** | 10.2% | **+0.716** ⭐ | -14.2% |
+| LS-200% K=30 (2x 杠杆) | +14.63% | 20.4% | +0.716 | -27.0% |
+| LS-100% K=50 | +3.60% | 8.4% | +0.426 | -10.0% |
+| LS-100% K=100 | -0.95% | 5.8% | -0.163 | -11.4% |
+
+**3 个关键发现**：
+
+1. **Sharpe 0.45 → 0.72，提升 60%** — long-only 那"被市场 beta 拖累"的一半 alpha 拿回来了
+2. K=30 仍最优（K 越大 Sharpe 越低），跟 R11 一致：信号在头部最强
+3. 空头 leg 年化贡献 +2.08%（做空 bottom K）— bottom K 确实跑输基准
+
+**项目天花板更新**：
+- 原以为：R8.5 long-only IR 0.45
+- 现在：**LS-100% K=30 Sharpe 0.72**（含成本, hypothetical short）
+- 实盘可执行版（CSI500 期货对冲）预期在 0.45-0.72 之间
+
+**这是项目首次实质性突破天花板**。如果要实盘, 下一步是研究"long-only + 期货对冲"的工程版。
+
+---
