@@ -52,6 +52,41 @@ exchange:    open 0.1% / close 0.2% / limit ±9.5%
 # 注: 含双边 0.3% 成本; A 股实盘融券有约束, 实盘版需用 CSI500 股指期货对冲
 ```
 
+### R13 (B3) 财务因子 - 半成品状态
+
+**目标**: 加 10 个核心财务因子 (ROE/净利率/毛利率/EPS/资产负债率 等)
+判断财务因子能否再推 Sharpe 0.72 上去。
+
+**当前阻塞**: 财务数据采集困难
+
+| 数据源 | 状态 |
+|---|---|
+| baostock | 单股 21s × 1838 = ~10 小时, 越跑越慢 (50% 进度后基本停滞) |
+| akshare | 4 worker 触发 IP 黑名单, 单线程后 backoff 也救不回 |
+| Tushare | 需注册 token + 积分门槛, 未试 |
+| **Wind (用户账号)** | **进行中**: 已生成 1838 股 Wind 格式代码 + Windows 跑的 collector 脚本, 等用户在 Windows 跑完 + zip 传回 Mac |
+
+**已就绪代码**:
+- `scripts/collect_financials.py` (baostock 4-worker 版)
+- `scripts/collect_financials_akshare.py` (akshare 4-worker 版)
+- `scripts/collect_financials_ak_safe.py` (akshare 单线程 + backoff 版)
+- `scripts/windows_wind_collector.py` ⭐ Wind 版, 用户在 Windows 跑
+- `factors/financial_pit_ak.py` (akshare 格式的 PIT 处理 + qlib bin 写入)
+- `factors/alpha158_finance.py` (Alpha158 + 10 财务因子 handler)
+- `scripts/round13.py` (4 组对比框架: long-only/long-short × Alpha158/Alpha158Finance)
+- `data_raw/meta/wind_codes_for_query.{txt,csv}` (供用户贴 Wind)
+
+**已采半成品** (gitignore 中):
+- `data_raw/financials/` (baostock 175 只, 14h 后停)
+- `data_raw/financials_ak/` (akshare 75 只, 被 IP 封禁后停)
+
+**等 Wind 数据回来后的步骤** (一气呵成 ~30 分钟):
+1. 解压 zip 到 `data_raw/financials_wind/`
+2. 写 `factors/financial_pit_wind.py` (Wind 格式 + 真公告日)
+3. 跑 PIT 写入 cn_data_v4 bins
+4. 跑 `scripts/round13.py` 出 4 组对比
+5. 写 `results/runs/round13/summary.md`
+
 ### 数据集快查
 
 | 路径 | 内容 | 状态 |

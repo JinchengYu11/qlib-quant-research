@@ -6,6 +6,9 @@
 # ----- 原始数据（太大，运行 collector 重新生成）-----
 data_raw/baostock_csv/
 data_raw/baostock_valuation/
+data_raw/financials/
+data_raw/financials_ak/
+data_raw/financials_wind/
 
 # 保留小的元数据 JSON 和 TXT
 !data_raw/meta/
