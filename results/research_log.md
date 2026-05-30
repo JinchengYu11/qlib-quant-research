@@ -438,3 +438,47 @@ CSI500 (历史并集) + Alpha158 + LightGBM 默认超参 + TopkDropoutStrategy(t
 **这是项目首次实质性突破天花板**。如果要实盘, 下一步是研究"long-only + 期货对冲"的工程版。
 
 ---
+
+## 阶段五·第 14 轮 (B1+++)：工程版 long-short — IC 期货对冲实测（2026-05-30）
+
+**假设**：R12 的 hypothetical short (Sharpe 0.72) 换成真实可执行的 CSI500 期货对冲后，alpha 能保留多少？预期落在 R8.5 (0.45) 与 R12 (0.72) 之间。
+
+**实现**：独立 engine 模块（`ic_data` + `ic_engine` + `account`）+ 3 组配置回测。
+脚本 [scripts/round14_step1_long_leg.py](../scripts/round14_step1_long_leg.py) + [scripts/round14_step2_engineering_ls.py](../scripts/round14_step2_engineering_ls.py)
+详细 [results/runs/round14/summary.md](runs/round14/summary.md)。
+
+数据：akshare IC 主力连续 (2017-01 ~ 2026-05, 2270 行)。
+实测平均 basis_pct = -0.525% (per-day 快照)，按季度展期年化约 -2.1%（spec 保守假设 5% 偏高）。
+
+**结果**：
+
+| 配置 | 年化 | Sharpe | MDD |
+|---|---|---|---|
+| **R12 LS-100% K=30 (hypothetical)** | +7.32% | **0.717** | -14.21% |
+| **R8.5 long-only (净超额)** | +4.90% | **0.498** | -15.70% |
+| R14 C3 (1x 乐观, basis 3%) | +4.10% | 0.344 | -16.90% |
+| R14 C2 (60d beta-adj, 保守) | +3.05% | 0.244 | -24.24% |
+| R14 C1 (1x notional, 保守) | +2.62% | 0.209 | -21.00% |
+
+**4 个核心发现**：
+
+1. **预期完全推翻** — 工程版 C1 Sharpe 0.21 **低于** R8.5 long-only IR 0.50。原本以为 R14 会落在 [0.45, 0.72]，实际落到 0.21-0.34 区间，完全跌穿了 R8.5 底线。
+
+2. **R12 突破几乎全部来自 hypothetical short 的反向选股 alpha** — 把 short leg 从"选 bottom K 个股做空"换成"做空 CSI500 期货"，Sharpe 从 0.72 跌到 0.21。Market-neutral hedging 本身只贡献 ~0 (甚至负)。R12 看到的"突破"在 A 股实盘融券约束下基本无法兑现。
+
+3. **basis drag 是 alpha 杀手** — basis 从 5% 降到 3% (C1→C3) Sharpe +0.13。每 1pp basis drag 拖 0.07 Sharpe。实测 basis ~2%，即使用实测值预计 Sharpe 仍只有 0.35-0.45，**不会超过 R8.5**。
+
+4. **beta-adjusted hedge 改善有限** — C2 vs C1 Sharpe 仅 +0.035，原因是 TopK=30 CSI500 选股组合的 beta ≈ 1，beta-adjust 的边际效益小。
+
+**项目天花板更新**：
+- 原以为：R12 LS-100% Sharpe 0.72 (假定 hypothetical short 在实盘有效)
+- 现在 (实测后)：**R8.5 long-only IR 0.50 才是真实天花板**。R14 实测确认 R12 的"突破"在 A 股实盘约束下基本无法兑现
+
+**这是项目的"反证型突破"** —— 它砸碎了 R12 的乐观预期，确认 R8.5 long-only 才是项目的真实研究产物。
+
+**下一步选项**：
+- 聚焦"两融标的子集" (约 1000 只) 做受限 long-short — 预期 Sharpe 0.4-0.6 (部分恢复 short alpha)
+- 用 IC 当月+下月组合优化 basis 成本 (实测 -2% 仍比 R8.5 alpha 大)
+- 等 R13 财务因子完成，叠加到 R8.5 long-only — 这是更现实的路径
+
+---

@@ -1,14 +1,16 @@
 # Qlib 量化研究项目
 
-> **项目状态**：研究方法论闭环 + 突破探索（12 轮迭代）。R8.5 是 long-only 最优 (IR 0.445)，
-> R12 用 hypothetical long-short 把 Sharpe 推到 0.72（突破天花板 60%）。
+> **项目状态**：研究方法论闭环 + 突破探索 + 反证（14 轮迭代）。
+> R8.5 是 long-only 最优 (IR 0.445)。R12 hypothetical long-short Sharpe 0.72 看似突破，
+> R14 工程版 (CSI500 期货对冲) Sharpe 仅 0.21 — **实测反证**：R12 的 alpha 几乎全部来自
+> hypothetical short 的反向选股，A 股实盘融券约束下无法兑现。**R8.5 才是项目真实天花板**。
 > 详细报告见 [PROJECT_REPORT.pdf](PROJECT_REPORT.pdf)，全程日志见 [results/research_log.md](results/research_log.md)。
 
 ---
 
 ## 🎯 当前项目状态（重要：新会话先读这里）
 
-### 已完成的 12 轮迭代
+### 已完成的 14 轮迭代
 
 | 轮次 | 改了什么 | 净超额 / 年化 | IR / Sharpe | 关键发现 |
 |---|---|---|---|---|
@@ -20,11 +22,13 @@
 | R6 | 换 CSI500 含偏 | +9.01% | 0.87 | 突破！但含偏 |
 | R7 | CSI500 + 调优(含偏) | +14.94%★ | 1.50★ | 含偏巅峰 |
 | R8 | CSI500 去偏 + 调优套用 | +3.91% | 0.47 | 真相浮出（虚高11pp） |
-| **R8.5** | **CSI500 去偏 + 默认 + topk=30** | **+4.40%** | **0.445** | **long-only 最优** |
+| **R8.5** | **CSI500 去偏 + 默认 + topk=30** | **+4.40%** | **0.445** ✅ | **真天花板 (实盘可执行)** |
 | R9 | 模型集成 + 行业中性化 | 全部失败 | 全部下降 | 确认 long-only 上限 |
 | R10 | 分层 quintile 诊断 | spread +11.41% | 0.82 | 信号在底部也强 |
 | R11 | topk 扫描反证 | 全比 R8.5 差 | — | 调 topk 走不通 |
-| **R12** | **hypothetical long-short** | **+7.32%** | **0.716** ⭐ | **突破 R8.5 天花板 60%** |
+| R12 | hypothetical long-short | +7.32% | 0.716 | hypothetical 假突破 |
+| R13 | 财务因子框架 (半成品) | — | — | 等 Wind 数据 |
+| **R14** | **工程版 LS (IC 期货对冲)** | **+2.62%** | **0.209** | **反证: R12 不实, R8.5 才是天花板** |
 
 ★ = 含方法论隐患（短期 / 幸存者偏差）
 
@@ -42,14 +46,31 @@ exchange:    open 0.1% / close 0.2% / limit ±9.5%
 # 实测: 净超额 +4.40%, IR 0.445, 净夏普 0.566
 ```
 
-### 突破版 (R12 long-short, 研究用)
+### 突破版 (R12 long-short, hypothetical, **已被 R14 反证**)
 
 ```yaml
 # 多头: 同上 R8.5 配置 (signal=pred, topk=30, n_drop=1)
-# 空头: signal=-pred, topk=30, n_drop=1 (hypothetical short)
-# 组合: 0.5×(long_net + short_net)  → gross 100%, net 0 (market neutral)
-# 实测: 年化 +7.32%, vol 10.22%, Sharpe 0.716, MDD -14%
-# 注: 含双边 0.3% 成本; A 股实盘融券有约束, 实盘版需用 CSI500 股指期货对冲
+# 空头: signal=-pred, topk=30, n_drop=1 (hypothetical short bottom K 个股)
+# 实测: 年化 +7.32%, Sharpe 0.716, MDD -14%
+# ⚠️  R14 反证 (2026-05-30): 真换成 CSI500 期货对冲后 Sharpe 仅 0.21,
+#     说明 R12 的 alpha ~70% 来自做空 bottom K 个股 (实盘融券约束下基本拿不到)
+```
+
+### R14 工程版 (CSI500 IC 期货对冲, 实盘可执行性测试)
+
+```yaml
+# 多头: 同 R8.5 (TopK=30, n_drop=1, Alpha158, LGBM 默认)
+# 空头: CSI500 期货 IC0 主力连续, hedge_mode=1x_notional 或 60d beta_adjusted
+# 资金: 1 亿元, IC 保证金 14%, 期货手续费 万 0.23
+# Basis drag: 保守 5%/y 或 乐观 3%/y (实测年化约 2%)
+# 现金利息: 0% (保守) 或 1.5% (乐观)
+# 测试 3 组配置 (C1/C2/C3):
+#   C1 (1x notional + 保守 finance):  年化 +2.62%, Sharpe 0.209, MDD -21%
+#   C2 (60d beta-adj + 保守 finance): 年化 +3.05%, Sharpe 0.244, MDD -24%
+#   C3 (1x notional + 乐观 finance):  年化 +4.10%, Sharpe 0.344, MDD -17%
+# 结论: 工程版 Sharpe (0.21-0.34) < R8.5 long-only (IR 0.50)
+#       basis drag 是 alpha 杀手, beta-adj 改善有限
+# Margin call 触发 ~1000+ 次 (cash buffer = 0, 实盘需预留 14% margin pool)
 ```
 
 ### R13 (B3) 财务因子 - 半成品状态
