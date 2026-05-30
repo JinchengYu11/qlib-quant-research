@@ -1,6 +1,6 @@
-"""Alpha158Finance: Alpha158 (158 量价) + 10 个核心财务因子 (akshare 版).
+"""Alpha158Finance: Alpha158 (158 量价) + 10 个核心财务因子 (东财版).
 
-财务字段 (来自 akshare 季报, 已 PIT 处理用法定披露日, 见 financial_pit_ak.py):
+财务字段 (来自东财 stock_financial_abstract, PIT 用法定披露截止日, 见 financial_pit_ak.py):
   $roe        净资产收益率 (盈利)
   $roa        总资产报酬率 (盈利)
   $npm        销售净利率 (利润率)

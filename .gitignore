@@ -9,6 +9,7 @@ data_raw/baostock_valuation/
 data_raw/financials/
 data_raw/financials_ak/
 data_raw/financials_wind/
+data_raw/financials_tushare/
 
 # 保留小的元数据 JSON 和 TXT
 !data_raw/meta/
