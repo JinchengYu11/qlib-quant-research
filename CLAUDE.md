@@ -1,9 +1,9 @@
 # Qlib 量化研究项目
 
-> **项目状态**：研究方法论闭环 + 突破探索 + 反证（14 轮迭代）。
-> R8.5 是 long-only 最优 (IR 0.445)。R12 hypothetical long-short Sharpe 0.72 看似突破，
-> R14 工程版 (CSI500 期货对冲) Sharpe 仅 0.21 — **实测反证**：R12 的 alpha 几乎全部来自
-> hypothetical short 的反向选股，A 股实盘融券约束下无法兑现。**R8.5 才是项目真实天花板**。
+> **项目状态**：研究方法论闭环 + 5 维度反证收官（14 轮迭代 + 5 反证）。
+> R8.5 long-only IR 0.445 是真天花板。5 个改进方向都被反证：模型集成 (R9), 中性化 (R9),
+> 调 topk (R11), 工程版 LS (R14 Sharpe 0.21), 财务因子 (R13 Sharpe 0.36)。
+> 项目里第 5 次印证"IC 涨 ≠ 回测涨"是最大方法论收获。
 > 详细报告见 [PROJECT_REPORT.pdf](PROJECT_REPORT.pdf)，全程日志见 [results/research_log.md](results/research_log.md)。
 
 ---
@@ -27,7 +27,7 @@
 | R10 | 分层 quintile 诊断 | spread +11.41% | 0.82 | 信号在底部也强 |
 | R11 | topk 扫描反证 | 全比 R8.5 差 | — | 调 topk 走不通 |
 | R12 | hypothetical long-short | +7.32% | 0.716 | hypothetical 假突破 |
-| R13 | 财务因子框架 (半成品) | — | — | 等 Wind 数据 |
+| **R13** | **+ 财务因子 (Alpha158Finance)** | **+3.58%** | **0.356** | **反证: 加财务因子, IC 涨 Sharpe 跌** |
 | **R14** | **工程版 LS (IC 期货对冲)** | **+2.62%** | **0.209** | **反证: R12 不实, R8.5 才是天花板** |
 
 ★ = 含方法论隐患（短期 / 幸存者偏差）
@@ -73,40 +73,34 @@ exchange:    open 0.1% / close 0.2% / limit ±9.5%
 # Margin call 触发 ~1000+ 次 (cash buffer = 0, 实盘需预留 14% margin pool)
 ```
 
-### R13 (B3) 财务因子 - 半成品状态
+### R13 (B3) 财务因子 - 完成 (反证)
 
-**目标**: 加 10 个核心财务因子 (ROE/净利率/毛利率/EPS/资产负债率 等)
-判断财务因子能否再推 Sharpe 0.72 上去。
+**结果 (2026-05-31)**: 加 10 个核心财务因子 (Alpha158Finance, 东财源 1815/1838 = 98.7%) 后:
+- A158 (R8.5 复现): Sharpe 0.445
+- A158+FIN long-only: **Sharpe 0.356** ← 反而下降
+- IC 微升 (0.0328 → 0.0338) 但 Sharpe 大跌 (-45% relative). 第 5 次印证"IC ≠ 回测"
+- 财务因子 LGBM importance 普遍排 84-160 / 168, 只有 EPS 进入前 1/4
 
-**当前阻塞**: 财务数据采集困难
+**数据踩坑全程**: baostock 175/1838 停; akshare 新浪源 75/1838 被封 IP; Wind 长期 stash;
+Tushare 新账户限频 1次/小时 (76 天不可行); 网易 quotes 子域 502 已废.
+**最终东财源** `ak.stock_financial_abstract` 8 小时跑完 (1.5s/股稳定).
 
-| 数据源 | 状态 |
-|---|---|
-| baostock | 单股 21s × 1838 = ~10 小时, 越跑越慢 (50% 进度后基本停滞) |
-| akshare | 4 worker 触发 IP 黑名单, 单线程后 backoff 也救不回 |
-| Tushare | 需注册 token + 积分门槛, 未试 |
-| **Wind (用户账号)** | **进行中**: 已生成 1838 股 Wind 格式代码 + Windows 跑的 collector 脚本, 等用户在 Windows 跑完 + zip 传回 Mac |
+详见 [results/runs/round13/summary.md](results/runs/round13/summary.md)。
 
-**已就绪代码**:
-- `scripts/collect_financials.py` (baostock 4-worker 版)
-- `scripts/collect_financials_akshare.py` (akshare 4-worker 版)
-- `scripts/collect_financials_ak_safe.py` (akshare 单线程 + backoff 版)
-- `scripts/windows_wind_collector.py` ⭐ Wind 版, 用户在 Windows 跑
-- `factors/financial_pit_ak.py` (akshare 格式的 PIT 处理 + qlib bin 写入)
+**最终成功的工具链**:
+- `scripts/collect_financials_em.py` ⭐ 东财 collector (akshare `stock_financial_abstract`, 1.5s/股)
+- `scripts/build_financial_bins_em.py` ⭐ 写入 cn_data_v4 bins
+- `factors/financial_pit_ak.py` (PIT 处理 helper, 跟东财格式兼容)
 - `factors/alpha158_finance.py` (Alpha158 + 10 财务因子 handler)
-- `scripts/round13.py` (4 组对比框架: long-only/long-short × Alpha158/Alpha158Finance)
-- `data_raw/meta/wind_codes_for_query.{txt,csv}` (供用户贴 Wind)
+- `scripts/round13.py` (6 组对比框架: Alpha158/+FIN × long-only/LS-100%/LS-200%)
+- `data_raw/financials_em/` (gitignored, 1815 股 CSV)
 
-**已采半成品** (gitignore 中):
-- `data_raw/financials/` (baostock 175 只, 14h 后停)
-- `data_raw/financials_ak/` (akshare 75 只, 被 IP 封禁后停)
-
-**等 Wind 数据回来后的步骤** (一气呵成 ~30 分钟):
-1. 解压 zip 到 `data_raw/financials_wind/`
-2. 写 `factors/financial_pit_wind.py` (Wind 格式 + 真公告日)
-3. 跑 PIT 写入 cn_data_v4 bins
-4. 跑 `scripts/round13.py` 出 4 组对比
-5. 写 `results/runs/round13/summary.md`
+**历史踩坑产物 (可删)**:
+- `scripts/collect_financials.py` (baostock 4-worker, 慢)
+- `scripts/collect_financials_akshare.py` (akshare 4-worker 新浪源, 被封)
+- `scripts/collect_financials_ak_safe.py` (akshare 单线程新浪源, 后来新浪源也废了)
+- `scripts/windows_wind_collector.py` (Wind 路线, 没用上)
+- `data_raw/financials/`, `data_raw/financials_ak/` (半成品)
 
 ### 数据集快查
 
