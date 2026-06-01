@@ -1,0 +1,93 @@
+{
+ "summary": [
+  {
+   "ann_pct": 4.401154601063981,
+   "vol_pct": 9.898711749228028,
+   "sharpe": 0.4446189274485353,
+   "mdd_pct": -15.697204060267467,
+   "name": "LGBM long-only"
+  },
+  {
+   "ann_pct": 7.317183851222408,
+   "vol_pct": 10.216017299544946,
+   "sharpe": 0.7162462275341231,
+   "mdd_pct": -14.211672288249112,
+   "name": "LGBM LS-100% K=30"
+  },
+  {
+   "ann_pct": 14.634367702444816,
+   "vol_pct": 20.432034599089892,
+   "sharpe": 0.7162462275341231,
+   "mdd_pct": -26.990708489066506,
+   "name": "LGBM LS-200% K=30"
+  },
+  {
+   "ann_pct": 0.8055845111415623,
+   "vol_pct": 9.658395047750174,
+   "sharpe": 0.0834076994323415,
+   "mdd_pct": -16.053686109510213,
+   "name": "TabNet long-only"
+  },
+  {
+   "ann_pct": 2.6711939353479526,
+   "vol_pct": 11.718405742495683,
+   "sharpe": 0.2279485788464485,
+   "mdd_pct": -18.829780089956394,
+   "name": "TabNet LS-100% K=30"
+  },
+  {
+   "ann_pct": 5.342387870695905,
+   "vol_pct": 23.436811484991367,
+   "sharpe": 0.2279485788464485,
+   "mdd_pct": -35.65559894566211,
+   "name": "TabNet LS-200% K=30"
+  }
+ ],
+ "ic_results": {
+  "LGBM_A158": {
+   "IC": 0.03279460509172466,
+   "RankIC": 0.02865186812426328,
+   "RankICIR": 0.2183163383182966,
+   "train_time_min": 0.6047883192698161
+  },
+  "TabNet_A158": {
+   "IC": 0.025051127216431462,
+   "RankIC": 0.021970812900295116,
+   "RankICIR": 0.14520774777883297,
+   "train_time_min": 417.5299449960391
+  }
+ },
+ "tabnet_done": true,
+ "lgb_config": {
+  "loss": "mse",
+  "colsample_bytree": 0.8879,
+  "learning_rate": 0.0421,
+  "subsample": 0.8789,
+  "lambda_l1": 205.6999,
+  "lambda_l2": 580.9768,
+  "max_depth": 8,
+  "num_leaves": 210,
+  "num_threads": 8
+ },
+ "tabnet_config": {
+  "d_feat": 158,
+  "out_dim": 64,
+  "final_out_dim": 1,
+  "batch_size": 4096,
+  "n_d": 32,
+  "n_a": 32,
+  "n_shared": 2,
+  "n_ind": 2,
+  "n_steps": 3,
+  "n_epochs": 30,
+  "early_stop": 10,
+  "relax": 1.3,
+  "vbs": 2048,
+  "optimizer": "adam",
+  "loss": "mse",
+  "lr": 0.005,
+  "pretrain": false,
+  "GPU": -1,
+  "seed": 42
+ }
+}

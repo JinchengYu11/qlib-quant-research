@@ -519,3 +519,44 @@ CSI500 (历史并集) + Alpha158 + LightGBM 默认超参 + TopkDropoutStrategy(t
 - 最现实: 整理 PROJECT_REPORT v2 (含 R10-R14), 固化方法论产出 — 14 轮研究 + 5 反证是论文级别教学案例
 
 ---
+
+## 阶段六·第 15 轮 (B4)：深度模型反证 — TabNet vs LGBM（2026-06-01）
+
+**假设**：TabNet 这种为 tabular 设计的深度模型, 能不能在 Alpha158 同 setup 上超过 LightGBM 的 R8.5 IR 0.445 / R12 Sharpe 0.716？
+
+**实现**：`pytorch_tabnet` (d_feat=158, n_d=32, n_steps=3, pretrain=False, CPU 训练).
+脚本 [scripts/round15.py](../scripts/round15.py)，详细 [results/runs/round15/summary.md](runs/round15/summary.md)。
+
+**结果**：
+
+| 指标 | LGBM | TabNet | 相对 |
+|---|---|---|---|
+| IC | **0.0328** | 0.0251 | **-23%** |
+| RankIC | **0.0287** | 0.0220 | -23% |
+| RankICIR | **0.218** | 0.145 | -33% |
+| long-only Sharpe | **0.445** | **0.083** | **-81%** |
+| LS-100% Sharpe | **0.716** | **0.228** | **-68%** |
+| 训练时长 | 0.6 min | **417.5 min** | **×700** |
+
+**4 个核心发现**：
+
+1. **TabNet 全输** — 不只 backtest 输, IC 也输 (-23%). 不像 R13 (IC 升 Sharpe 跌的剪刀差), 是单纯学得更差.
+
+2. **训练时长 ×700, 结果 -68%** — 深度模型在 A 股日频 alpha 任务上没架构优势, 跟 Kaggle 表格类比赛 SOTA 是 LightGBM 一致.
+
+3. **第 6 次"改进失败"反证 (R8.5 之上 7 个方向全部失败)**：
+   - R5/R8 Optuna 调参, R9 模型集成 + 中性化, R11 调 topk, R13 财务因子, R14 工程 LS, R15 TabNet
+   - **R8.5 在 7 个改进方向上都没被超过**
+
+4. **为什么 TabNet 这么差** (3 个可能):
+   - Alpha158 已是手工工程化特征, 树模型在特征空间里直接搜索更高效
+   - SNR 极低 (IC 0.03) 的数据上, 大容量深度模型易过拟训练集
+   - CPU 30 epoch 训练充分性 — 但 smoke test 显示 epoch 0/1 valid loss 已走平, 不是瓶颈
+
+**核心结论**：R8.5 LightGBM + Alpha158 不仅在策略层面是天花板, 在模型层面也是. 项目至此 15 轮 + 7 反证, 方法论闭环到 textbook 级别。
+
+**下一步建议**：
+- 不再做"R8.5 之上加东西"的尝试 (7 次反证证明这条路不通)
+- 实际可推: 整理 PROJECT_REPORT v2 (15 轮 + 7 反证案例), 或横向 universe 验证 (HS300/CSI1000), 或 walk-forward 时间外稳定性验证
+
+---
